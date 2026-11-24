@@ -1,0 +1,26 @@
+# 构建产物
+out/
+build/
+*.apk
+*.aab
+*.dex
+
+# 签名密钥 —— 绝对不能提交！
+*.jks
+*.keystore
+keystore.properties
+local.properties
+
+# 本地配置（可能含密钥）
+data/
+settings.json
+
+# IDE
+.idea/
+*.iml
+.gradle/
+.vscode/
+
+# 系统
+.DS_Store
+Thumbs.db

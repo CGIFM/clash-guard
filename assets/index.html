@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta name="theme-color" content="#0b0f17" />
+<title>线路守卫</title>
+<style>
+:root{--bg:#0b0f17;--card:#151d2b;--card2:#1b2434;--line:#253044;--fg:#e8eef9;--fg2:#93a1b8;
+--fg3:#64748b;--ok:#34d399;--warn:#fbbf24;--bad:#f87171;--accent:#4f8cff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--fg);
+font:15px/1.45 -apple-system,"PingFang SC","Noto Sans SC",sans-serif;
+-webkit-user-select:none;user-select:none}
+body{padding:0 12px calc(env(safe-area-inset-bottom) + 24px)}
+header{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;
+padding:calc(env(safe-area-inset-top) + 10px) 4px 10px;
+background:linear-gradient(to bottom,var(--bg) 75%,transparent)}
+.brand{display:flex;align-items:center;gap:8px}
+.brand h1{font-size:17px;margin:0;font-weight:650}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--fg3)}
+.dot.ok{background:var(--ok);box-shadow:0 0 0 0 rgba(52,211,153,.6);animation:p 2.2s infinite}
+.dot.bad{background:var(--bad)}
+.dot.warn{background:var(--warn)}
+@keyframes p{0%{box-shadow:0 0 0 0 rgba(52,211,153,.5)}70%{box-shadow:0 0 0 9px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
+button{font:inherit;color:inherit;border:none;background:none;cursor:pointer}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px;margin-bottom:12px}
+.cardhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.cardhead h2{font-size:14px;margin:0;color:var(--fg2);font-weight:600}
+.mini{padding:6px 12px;border-radius:999px;background:var(--card2);font-size:12.5px;color:var(--fg2);border:1px solid var(--line)}
+.mini.acc{background:rgba(79,140,255,.14);color:#7fb0ff;border-color:rgba(79,140,255,.3)}
+.status{font-size:21px;font-weight:700}
+.status.ok{color:var(--ok)}.status.bad{color:var(--bad)}.status.warn{color:var(--warn)}
+.sub{font-size:12.5px;color:var(--fg3);margin-top:2px;word-break:break-all}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.m{background:var(--card2);border-radius:12px;padding:8px 4px;text-align:center}
+.m b{display:block;font-size:17px;font-variant-numeric:tabular-nums}
+.m span{font-size:11px;color:var(--fg3)}
+.svcs{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}
+.svc{background:var(--card2);border:1px solid var(--line);border-radius:13px;padding:9px 10px}
+.svc .n{font-size:13px;font-weight:600}
+.svc .l{font-size:11.5px;color:var(--fg3);font-variant-numeric:tabular-nums;margin-top:1px}
+.svc.ok{border-color:rgba(52,211,153,.35)}.svc.ok .l{color:var(--ok)}
+.svc.bad{border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.07)}
+.svc.bad .n,.svc.bad .l{color:var(--bad)}
+.svc.slow{border-color:rgba(251,191,36,.35)}.svc.slow .l{color:var(--warn)}
+.cur{font-size:15px;font-weight:650;word-break:break-all}
+.cur-s{font-size:11.5px;color:var(--fg3);margin-top:2px}
+.grp{margin-bottom:10px}
+.gh{font-size:12px;color:#93a1b8;font-weight:650;padding:4px 0;border-bottom:1px solid #253044;margin-bottom:4px}
+.gh span{color:#64748b;font-weight:400;float:right}
+.nd{display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:12.5px}
+.nd .d{flex:0 0 auto;width:62px;font-variant-numeric:tabular-nums;font-weight:600}
+.nd .d.g{color:#34d399}.nd .d.m{color:#fbbf24}.nd .d.b{color:#fb923c}.nd .d.x{color:#f87171}
+.nd .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nd.dead{opacity:.6}
+.nd.cur{background:rgba(79,140,255,.1);border-radius:8px}
+.nd .tag{font-size:10px;padding:1px 6px;border-radius:999px;background:rgba(79,140,255,.2);color:#7fb0ff}
+#nodes{max-height:320px;overflow:auto}
+.log{font-size:12.5px;max-height:200px;overflow:auto}
+.log div{padding:3px 0;border-bottom:1px dashed var(--line);display:flex;gap:8px}
+.log .t{color:var(--fg3);font-variant-numeric:tabular-nums;flex:0 0 auto}
+.log .x{flex:1;min-width:0;word-break:break-all}
+.log .sw{color:#7fb0ff;font-weight:600}
+.log .er{color:var(--bad)}
+.set{display:flex;flex-direction:column;gap:14px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.row label{font-size:13.5px}
+.row .hint{font-size:11.5px;color:var(--fg3)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.sw{position:relative;width:46px;height:27px;flex:0 0 auto}
+.sw input{opacity:0;width:0;height:0}
+.sw i{position:absolute;inset:0;background:var(--line);border-radius:999px;transition:.18s}
+.sw i:after{content:"";position:absolute;width:21px;height:21px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.18s}
+.sw input:checked+i{background:var(--accent)}
+.sw input:checked+i:after{transform:translateX(19px)}
+input[type=text],input[type=password]{width:100%;padding:10px 12px;border-radius:11px;border:1px solid var(--line);
+background:var(--card2);color:var(--fg);font:inherit;outline:none}
+.tip{font-size:11.5px;color:var(--fg3);margin:6px 0 0}
+.empty{color:var(--fg3);font-size:13px;padding:8px 2px}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot" id="dot"></span><h1>线路守卫</h1></div>
+  <div style="display:flex;gap:6px">
+    <button class="mini" id="btnRefresh">刷新</button>
+    <button class="mini acc" id="btnTest">立即检测</button>
+  </div>
+</header>
+
+<div class="card">
+  <div class="status" id="st">读取中…</div>
+  <div class="sub" id="sub">正在连接 Clash</div>
+  <div class="sub" id="heartbeat" style="margin-top:4px">正在启动后台…</div>
+  <div class="sub" id="region" style="margin-top:2px">地区检测中…</div>
+  <div class="sub" id="nodeLine" style="margin-top:2px">节点：—</div>
+  <button id="btnLaunch" style="width:100%;margin-top:12px;padding:15px;
+    border-radius:13px;background:#4f8cff;color:#fff;font-size:16px;font-weight:650">
+    ⚡ 一键启动代理
+  </button>
+  <button id="btnStop" style="width:100%;margin-top:8px;padding:10px;border-radius:11px;
+    background:#1b2434;color:#93a1b8;font-size:13px;border:1px solid #253044">关闭代理</button>
+  <div class="metrics">
+    <div class="m"><b id="mTick">0</b><span>次检测</span></div>
+    <div class="m"><b id="mLat">—</b><span>延迟</span></div>
+    <div class="m"><b id="mPort">—</b><span>端口</span></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="cardhead"><h2>站点连通性</h2><span class="mini" id="badge">—</span></div>
+  <div class="svcs" id="svcs"><div class="empty">等待检测…</div></div>
+</div>
+
+<div class="card">
+  <div class="cardhead"><h2>当前线路</h2></div>
+  <div class="cur" id="cur">—</div>
+  <div class="cur-s" id="curSub"></div>
+</div>
+
+<div class="card">
+  <div class="cardhead">
+    <h2>全部节点 <span id="nodeSum" style="color:#64748b;font-weight:400"></span></h2>
+    <button class="mini acc" id="btnScan">全量测速</button>
+  </div>
+  <div id="nodes"><div class="empty">正在读取节点…</div></div>
+</div>
+
+<div class="card">
+  <div class="cardhead"><h2>自启动 / 关联启动</h2></div>
+  <div class="set">
+    <div class="row"><div><label>开机自动启动</label><div class="hint">手机重启后自动回到后台</div></div>
+      <label class="sw"><input type="checkbox" id="sBoot2" /><i></i></label></div>
+    <div class="row"><div><label>Clash 一打开就关联启动</label><div class="hint">检测到 FlClash 打开后立即开始监测</div></div>
+      <label class="sw"><input type="checkbox" id="sAssoc" /><i></i></label></div>
+    <div class="row"><div><label>关闭 Clash 后彻底退出</label><div class="hint">完全停止后台，最省电；下次需手动启动</div></div>
+      <label class="sw"><input type="checkbox" id="sStopWith" /><i></i></label></div>
+    <div id="permBox" style="display:none">
+      <div class="hint" id="permTip" style="margin-bottom:8px"></div>
+      <button class="mini acc" id="btnUsage" style="width:100%;padding:11px">去授予「使用情况访问」权限</button>
+    </div>
+    <div id="battBox" style="display:none">
+      <button class="mini acc" id="btnBatt" style="width:100%;padding:11px;margin-top:8px">允许后台常驻（关闭电池优化）</button>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="cardhead"><h2>局域网共享</h2><span class="mini" id="lanBadge">检测中</span></div>
+  <div id="lanBox"><div class="empty">正在读取本机地址…</div></div>
+  <div class="tip" style="margin-top:8px">
+    其它设备连上同一 WiFi / 热点后，把代理设成上面的地址即可。
+    <br>需要 FlClash 里开启「局域网代理」（你的已经开着）。
+  </div>
+</div>
+
+<div class="card">
+  <div class="cardhead"><h2>DNS 防泄露</h2><span class="mini" id="dnsBadge">检测中</span></div>
+  <div id="dnsDetail" class="tip">正在检查域名解析路径…</div>
+</div>
+
+<div class="card">
+  <div class="cardhead"><h2>设置</h2></div>
+  <div class="set">
+    <div>
+      <div class="row"><label>检测间隔 <b id="vInt">6</b> 秒</label></div>
+      <input type="range" id="sInt" min="2" max="30" step="1" />
+    </div>
+    <div class="row"><div><label>Clash 启动时通知我</label><div class="hint">关掉就没有那条提醒了</div></div>
+      <label class="sw"><input type="checkbox" id="sNotify" /><i></i></label></div>
+    <div class="row"><div><label>不通时自动切换</label><div class="hint">只在你勾选的节点里切</div></div>
+      <label class="sw"><input type="checkbox" id="sAuto" /><i></i></label></div>
+    <div class="row"><div><label>开机自动启动</label><div class="hint">重启手机后自动回到后台</div></div>
+      <label class="sw"><input type="checkbox" id="sBoot" /><i></i></label></div>
+    <div>
+      <label>Clash 控制器密钥</label>
+      <input type="password" id="sSecret" placeholder="FlClash → 工具 → 常规 → 外部控制器密钥" />
+      <div class="tip">只存在本机，不会上传</div>
+    </div>
+    <button class="mini acc" id="btnSave" style="padding:12px">保存设置</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="cardhead"><h2>事件</h2></div>
+  <div class="log" id="log"><div class="empty">还没有事件</div></div>
+</div>
+
+<script>
+(function(){
+  var NATIVE = window.GuardBridge;  // 由 MainActivity 注入
+  var S = null;
+
+  function $(id){ return document.getElementById(id); }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+  function pull(){
+    try {
+      if (!NATIVE) { $('st').textContent='原生接口未就绪'; return; }
+      var raw = NATIVE.getState();
+      S = JSON.parse(raw);
+      render();
+    } catch(e){ $('st').textContent='读取失败'; $('sub').textContent=String(e); }
+  }
+
+  function render(){
+    if(!S) return;
+    var svcs = S.services || [];
+    var bad = svcs.filter(function(s){return !s.ok;});
+
+    // 状态
+    var st = $('st'), sub = $('sub'), dot = $('dot');
+    var lb = $('btnLaunch');
+    if (S.clashAlive === false) {
+      st.textContent = 'FlClash 未运行'; st.className = 'status';
+      sub.textContent = '点下面的按钮，一键启动代理';
+      dot.className = 'dot';
+      if (lb) { lb.style.display = 'block'; lb.textContent = '⚡ 一键启动代理'; }
+    } else if (!svcs.length) {
+      st.textContent = '正在检测…'; st.className = 'status';
+      sub.textContent = '节点：' + (S.currentNode || '—');
+      dot.className = 'dot';
+      if (lb) { lb.style.display = 'block'; lb.textContent = '⚡ 代理运行中（点此重开）'; }
+    } else if (bad.length) {
+      st.textContent = '有线路不通'; st.className = 'status bad';
+      sub.textContent = '不通过：' + bad.map(function(s){return s.label;}).join('、')
+        + (S.failStreak ? ' · 第 ' + S.failStreak + ' 次' : '');
+      dot.className = 'dot bad';
+      if (lb) { lb.style.display = 'block'; lb.textContent = '⚡ 代理运行中（点此重开）'; }
+    } else {
+      var slow = S.latency > (S.latencyWarn || 4000);
+      st.textContent = slow ? '全通但偏慢' : '全部正常';
+      st.className = 'status ' + (slow ? 'warn' : 'ok');
+      sub.textContent = 'ChatGPT · OpenAI · Gemini · Claude · Google 全部可达';
+      dot.className = 'dot ' + (slow ? 'warn' : 'ok');
+      if (lb) { lb.style.display = 'block'; lb.textContent = '⚡ 代理运行中（点此重开）'; }
+    }
+
+    $('mTick').textContent = S.tickCount || 0;
+    $('mLat').textContent = S.latency > 0 ? S.latency + 'ms' : '—';
+    // 端口单独一格，一眼能看到
+    $('mPort').textContent = S.localPort ? String(S.localPort) : '—';
+    var nn = S.currentNode || '';
+    $('nodeLine').textContent = '节点：' + (nn || '—');
+    $('badge').textContent = S.apiVersion ? 'Clash ' + S.apiVersion : (S.clashAlive ? 'Clash 在线' : 'Clash 离线');
+    // 心跳：轮次 + 距离上轮多久（能立刻看出服务是否还活着）
+    var hb = $('heartbeat');
+    if (hb) {
+      if (!S.serviceAlive) { hb.textContent = '⚠ 后台服务未运行'; hb.style.color = '#f87171'; }
+      else {
+        var ago = S.lastRoundAt ? Math.round((Date.now() - S.lastRoundAt) / 1000) : -1;
+        var iv = S.intervalSec || 6;
+        var next = ago < 0 ? iv : Math.max(0, iv - ago);
+        var stale = ago >= 0 && ago > iv * 3;
+        hb.textContent = '⚙ 自动检测：第 ' + (S.roundCount||0) + ' 轮 · '
+          + (ago < 0 ? '启动中…' : (stale ? '⚠ 已停 ' + ago + ' 秒' : '下次 ' + next + ' 秒后'));
+        hb.style.color = stale ? '#f87171' : (ago >= 0 && ago > iv * 2 ? '#fbbf24' : '#34d399');
+      }
+    }
+
+    // 站点
+    if (!svcs.length) { $('svcs').innerHTML = '<div class="empty">等待检测…</div>'; }
+    else {
+      $('svcs').innerHTML = svcs.map(function(s){
+        var lv = !s.ok ? 'bad' : (s.ms > (S.latencyWarn||4000) ? 'slow' : 'ok');
+        return '<div class="svc '+lv+'"><div class="n">'+esc(s.label)+'</div>'
+          + '<div class="l">'+(s.ok ? s.ms+' ms' : esc(s.error||'失败'))+'</div></div>';
+      }).join('');
+    }
+
+    // 当前线路
+    $('cur').textContent = S.currentNode || '未连接';
+    var cs = [];
+    if (S.currentGroup) cs.push('策略组 ' + S.currentGroup);
+    if (S.lastSwitchTo) cs.push('上次自动切换 ' + (S.lastSwitchFrom||'?') + ' → ' + S.lastSwitchTo);
+    $('curSub').textContent = cs.join(' · ');
+
+    // 出口地区
+    var rg = $('region');
+    if (rg) {
+      var cc = S.exitCountry || '';
+      var allowed = S.geminiAllowed !== false;
+      if (!cc) {
+        rg.textContent = '🌍 地区：检测失败' + (S.geoError ? '（'+S.geoError+'）' : '');
+        rg.style.color = '#64748b';
+      } else {
+        rg.textContent = '🌍 出口 ' + cc + ' · ' + (S.exitIp||'')
+          + (allowed ? ' · Gemini 可用' : ' · ⚠ Gemini 不可用');
+        rg.style.color = allowed ? '#34d399' : '#f87171';
+      }
+    }
+
+    // 权限状态
+    try {
+      var hasUsage = NATIVE.hasUsagePermission();
+      var ignBatt = NATIVE.isIgnoringBattery();
+      var pb = $('permBox'), bb = $('battBox');
+      if (!hasUsage) {
+        pb.style.display='block';
+        $('permTip').textContent = '关联启动需要「使用情况访问」权限，否则只能靠进程存活判断（会慢一些）';
+      } else pb.style.display='none';
+      if (!ignBatt) { bb.style.display='block'; }
+      else bb.style.display='none';
+    } catch(e){}
+
+    // 全部节点（不通的也显示，标红）
+    var nodes = S.nodes || [];
+    $('nodeSum').textContent = nodes.length
+      ? '（通 ' + (S.nodeOk||0) + ' / 不通 ' + (S.nodeBad||0) + '）' : '';
+    if (!nodes.length) {
+      $('nodes').innerHTML = '<div class="empty">还没有节点数据</div>';
+    } else {
+      // 按 via 分组
+      var groups = {}, order = [];
+      nodes.forEach(function(n){
+        var g = n.via || '其他';
+        if (!groups[g]) { groups[g] = []; order.push(g); }
+        groups[g].push(n);
+      });
+      // 通的优先，同组内按延迟升序，不通过的排最后
+      var html = '';
+      order.forEach(function(g){
+        var list = groups[g].slice().sort(function(a,b){
+          if ((a.delay>0) !== (b.delay>0)) return a.delay>0 ? -1 : 1;
+          return (a.delay>0 && b.delay>0) ? a.delay-b.delay : 0;
+        });
+        var okN = list.filter(function(x){return x.delay>0;}).length;
+        html += '<div class="grp"><div class="gh">'+esc(g)+' <span>'+okN+'/'+list.length+'</span></div>';
+        list.forEach(function(n){
+          var lv = n.delay>0 ? (n.delay<300?'g':n.delay<800?'m':'b') : 'x';
+          var label = n.delay>0 ? n.delay+'ms' : '✕ 不通';
+          html += '<div class="nd '+(n.current?'cur':'')+' '+(n.delay>0?'':'dead')+'">'
+            + '<span class="d '+lv+'">'+label+'</span>'
+            + '<span class="nm">'+esc(n.name.replace(/[\u{1F1E6}-\u{1F1FF}]/gu,'').trim())+'</span>'
+            + (n.current?'<span class="tag">当前</span>':'')
+            + '</div>';
+        });
+        html += '</div>';
+      });
+      $('nodes').innerHTML = html;
+    }
+
+    // 局域网
+    var lb2 = $('lanBadge'), lbx = $('lanBox');
+    if (!S.lanIp) {
+      lb2.textContent = '未连接'; lb2.style.color = '#64748b';
+      lbx.innerHTML = '<div class="empty">没有检测到局域网 IP（可能没连 WiFi）</div>';
+    } else {
+      var open = S.lanProxyOpen === true;
+      lb2.textContent = open ? '可访问' : '未开放';
+      lb2.style.color = open ? '#34d399' : '#fbbf24';
+      lbx.innerHTML =
+        '<div style="display:flex;flex-direction:column;gap:10px">'
+        + '<div style="background:#0b0f17;border:1px solid #253044;border-radius:12px;padding:14px;text-align:center">'
+        + '<div style="font-size:11.5px;color:#64748b;margin-bottom:4px">HTTP / SOCKS 代理地址</div>'
+        + '<div id="lanAddr" style="font-size:22px;font-weight:700;letter-spacing:.5px;color:#4f8cff">'
+        + esc(S.lanProxyAddr) + '</div>'
+        + '<div style="display:flex;justify-content:center;gap:18px;margin-top:10px;font-size:12.5px">'
+        + '<div style="text-align:center"><div style="color:#64748b;font-size:11.5px">IP 地址</div>'
+        + '<div style="font-weight:650">' + esc(S.lanIp) + '</div></div>'
+        + '<div style="text-align:center"><div style="color:#64748b;font-size:11.5px">端口</div>'
+        + '<div style="font-weight:650;color:#4f8cff">' + (S.localPort||'—') + '</div></div>'
+        + '</div>'
+        + '</div>'
+        + '<button class="mini acc" id="btnCopyLan" style="padding:11px">复制地址</button>'
+        + (S.lanPageUrl
+            ? '<div style="text-align:center;background:#0b0f17;border:1px solid #253044;'
+              + 'border-radius:12px;padding:14px">'
+              + '<img id="qrImg" style="width:220px;height:220px;image-rendering:pixelated;'
+              + 'background:#fff;border-radius:8px" alt="扫码" />'
+              + '<div class="tip" style="margin-top:8px;color:#93a1b8">对方用相机/微信扫这个码</div>'
+              + '<div class="tip" style="margin:2px 0 0;font-size:11px;word-break:break-all">'
+              + esc(S.lanPageUrl) + '</div></div>'
+            : '<div class="tip">局域网页未启动（点「刷新」试试）</div>')
+        + '<div class="tip" style="margin:0">手机端：设置 → WiFi → 长按当前网络 → 修改网络 → 代理 → 手动</div>'
+        + '</div>';
+      // 生成二维码：地址变了要重新生成（开热点后 IP 会变）
+      var qr = $('qrImg');
+      if (qr && S.lanPageUrl) {
+        if (qr.getAttribute('data-url') !== S.lanPageUrl) {
+          try {
+            var dataUrl = NATIVE.makeQrDataUrl(S.lanPageUrl);
+            if (dataUrl) {
+              qr.src = dataUrl;
+              qr.setAttribute('data-url', S.lanPageUrl);
+            }
+          } catch(e){}
+        }
+      }
+      var cp = $('btnCopyLan');
+      if (cp) cp.onclick = function(){
+        try {
+          var t = document.createElement('textarea');
+          t.value = S.lanProxyAddr; document.body.appendChild(t);
+          t.select(); document.execCommand('copy'); document.body.removeChild(t);
+          cp.textContent = '已复制 ✓';
+          setTimeout(function(){ cp.textContent = '复制地址'; }, 1500);
+        } catch(e){ cp.textContent = '复制失败'; }
+      };
+    }
+
+    // DNS
+    var dnsB = $('dnsBadge'), dnsD = $('dnsDetail');
+    var st = S.dnsStatus || 'unknown';
+    if (st === 'fakeip') { dnsB.textContent='已接管'; dnsB.style.color='#34d399'; }
+    else if (st === 'risk') { dnsB.textContent='有风险'; dnsB.style.color='#fbbf24'; }
+    else if (st === 'leak') { dnsB.textContent='⚠ 泄露'; dnsB.style.color='#f87171'; }
+    else { dnsB.textContent='未知'; dnsB.style.color='#64748b'; }
+    dnsD.textContent = S.dnsDetail || '尚未检测';
+
+    // 日志
+    var ev = (S.events||[]).slice(-40).reverse();
+    $('log').innerHTML = ev.length ? ev.map(function(e){
+      var cls = e.type==='switch'?'sw':(e.type==='error'||e.type==='fail'?'er':'');
+      return '<div><span class="t">'+esc(e.time||'')+'</span><span class="x '+cls+'">'+esc(e.text)+'</span></div>';
+    }).join('') : '<div class="empty">还没有事件</div>';
+  }
+
+  function loadSettings(){
+    try {
+      var s = JSON.parse(NATIVE.getSettings());
+      $('sInt').value = s.intervalSec; $('vInt').textContent = s.intervalSec;
+      $('sNotify').checked = !!s.notifyOnStart;
+      $('sAuto').checked = !!s.autoSwitch;
+      $('sBoot').checked = !!s.autostart;
+      if ($('sBoot2')) $('sBoot2').checked = !!s.autostart;
+      if ($('sAssoc')) $('sAssoc').checked = s.assocStart !== false;
+      if ($('sStopWith')) $('sStopWith').checked = s.stopWithClash !== false;
+      $('sSecret').value = s.clashSecret || '';
+    } catch(e){}
+  }
+
+  $('sInt').addEventListener('input', function(){ $('vInt').textContent = this.value; });
+
+  $('btnSave').addEventListener('click', function(){
+    var cfg = {
+      intervalSec: Number($('sInt').value),
+      notifyOnStart: $('sNotify').checked,
+      autoSwitch: $('sAuto').checked,
+      autostart: $('sBoot').checked,
+      clashSecret: $('sSecret').value.trim()
+    };
+    try { NATIVE.saveSettings(JSON.stringify(cfg)); $('btnSave').textContent='已保存 ✓'; 
+      setTimeout(function(){ $('btnSave').textContent='保存设置'; }, 1500);
+      pull();
+    } catch(e){ $('btnSave').textContent='保存失败'; }
+  });
+
+  $('btnLaunch').addEventListener('click', function(){
+    try {
+      $('btnLaunch').textContent = '正在启动代理…';
+      var r = NATIVE.startClashService();
+      setTimeout(function(){ pull(); }, 4000);
+      setTimeout(function(){ pull(); }, 8000);
+    } catch(e){
+      $('btnLaunch').textContent = '调用失败: ' + e;
+    }
+  });
+
+  $('btnStop').addEventListener('click', function(){
+    if (!confirm('确定要关闭 FlClash 代理吗？关闭后所有网络会走直连。')) return;
+    try { NATIVE.stopClashService(); } catch(e){}
+    setTimeout(pull, 2500);
+  });
+
+  $('sStopWith').addEventListener('change', function(){
+    try {
+      var s = JSON.parse(NATIVE.getSettings());
+      s.stopWithClash = this.checked;
+      NATIVE.saveSettings(JSON.stringify(s));
+    } catch(e){}
+  });
+
+  $('btnUsage').addEventListener('click', function(){ try{ NATIVE.openUsageSettings(); }catch(e){} });
+  $('btnBatt').addEventListener('click', function(){ try{ NATIVE.requestIgnoreBattery(); }catch(e){} });
+
+  $('sBoot2').addEventListener('change', function(){
+    try {
+      var s = JSON.parse(NATIVE.getSettings());
+      s.autostart = this.checked;
+      NATIVE.saveSettings(JSON.stringify(s));
+    } catch(e){}
+  });
+  $('sAssoc').addEventListener('change', function(){
+    try {
+      var s = JSON.parse(NATIVE.getSettings());
+      s.assocStart = this.checked;
+      NATIVE.saveSettings(JSON.stringify(s));
+    } catch(e){}
+  });
+
+  $('btnScan').addEventListener('click', function(){
+    try {
+      NATIVE.scanNodes();
+      $('btnScan').textContent = '测速中…';
+      setTimeout(function(){ pull(); $('btnScan').textContent='全量测速'; }, 12000);
+    } catch(e){ $('btnScan').textContent='失败'; }
+  });
+
+  $('btnRefresh').addEventListener('click', function(){
+    try { NATIVE.reloadGuard(); } catch(e){}
+    setTimeout(pull, 800);
+  });
+
+  $('btnTest').addEventListener('click', function(){
+    try { NATIVE.checkNow(); $('btnTest').textContent='检测中…';
+      setTimeout(function(){ pull(); $('btnTest').textContent='立即检测'; }, 4000);
+    } catch(e){}
+  });
+
+  pull(); loadSettings();
+  setInterval(pull, 2000);
+})();
+</script>
+</body>
+</html>
