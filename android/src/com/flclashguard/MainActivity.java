@@ -9,6 +9,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
+import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
@@ -59,6 +60,48 @@ public class MainActivity extends Activity {
         web.setBackgroundColor(0xFF0B0F17);
         web.setOverScrollMode(View.OVER_SCROLL_NEVER);
         web.setWebViewClient(new WebViewClient());
+        // 关键：没有 WebChromeClient，JS 的 confirm()/alert() 会静默返回 false，
+        // 表现就是「点了按钮没反应」。这里补上，让确认框真正弹出来。
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onJsConfirm(WebView view, String url, String message,
+                                       final android.webkit.JsResult result) {
+                new android.app.AlertDialog.Builder(MainActivity.this)
+                        .setTitle("确认")
+                        .setMessage(message)
+                        .setPositiveButton("确定", new android.content.DialogInterface.OnClickListener() {
+                            @Override public void onClick(android.content.DialogInterface d, int w) {
+                                result.confirm();
+                            }
+                        })
+                        .setNegativeButton("取消", new android.content.DialogInterface.OnClickListener() {
+                            @Override public void onClick(android.content.DialogInterface d, int w) {
+                                result.cancel();
+                            }
+                        })
+                        .setOnCancelListener(new android.content.DialogInterface.OnCancelListener() {
+                            @Override public void onCancel(android.content.DialogInterface d) {
+                                result.cancel();
+                            }
+                        })
+                        .show();
+                return true;
+            }
+
+            @Override
+            public boolean onJsAlert(WebView view, String url, String message,
+                                     final android.webkit.JsResult result) {
+                new android.app.AlertDialog.Builder(MainActivity.this)
+                        .setMessage(message)
+                        .setPositiveButton("知道了", new android.content.DialogInterface.OnClickListener() {
+                            @Override public void onClick(android.content.DialogInterface d, int w) {
+                                result.confirm();
+                            }
+                        })
+                        .show();
+                return true;
+            }
+        });
         web.addJavascriptInterface(new Bridge(), "GuardBridge");
 
         FrameLayout root = new FrameLayout(this);
@@ -281,20 +324,109 @@ public class MainActivity extends Activity {
                 }
             }
 
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
-                @Override public void run() { probeAfterStart(3); }
-            }, 3000);
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
-                @Override public void run() { probeAfterStart(8); }
-            }, 8000);
             return log.toString().trim();
         }
 
-        /** 停代理：同样走 QuickActionActivity(STOP) */
+        /**
+         * 关闭代理。
+         *
+         * 为什么要做「先判断再动作 + 事后验证」：
+         * FlClash 的 QuickActionActivity 响应 START/TOGGLE/STOP 三个 action，
+         * 但实测 STOP 有时只是把界面收掉、VPN 还连着。
+         * 所以这里：先看当前状态 → 发合适的 action → 等 2 秒验证 → 没关上就换 TOGGLE 再试。
+         */
         @JavascriptInterface
         public String stopClashService() {
+            boolean wasUp = isVpnUpNow();
+            if (!wasUp) {
+                addEvent("info", "代理本来就是关着的");
+                return "already-off";
+            }
+
+            // ── 招 0：用 Shizuku 执行 am force-stop（最干净，实测有效，不跳转）──
+            if (ShizukuHelper.isReady() && ShizukuHelper.hasPermission()) {
+                if (ShizukuHelper.killClash(MainActivity.this)) {
+                    addEvent("ok", "代理已关闭（Shizuku 静默）");
+                    return "ok:shizuku";
+                }
+                addEvent("info", "Shizuku 关闭没成功，继续尝试其他方式");
+            }
+
+            // ── 招 1：直接停 VpnService（不跳转任何界面）──
+            // 这是最干净的方式：stopService 是静默的，不会把 FlClash 拉到前台。
             try {
-                Intent i = new Intent("com.follow.clash.action.STOP");
+                Intent stop = new Intent();
+                stop.setComponent(new android.content.ComponentName(
+                        "com.follow.clash", "com.follow.clash.service.VpnService"));
+                boolean ok = stopService(stop);
+                addEvent("info", "stopService 返回 " + ok);
+            } catch (Throwable t) {
+                addEvent("info", "stopService 失败：" + t.getMessage());
+            }
+            if (waitForVpn(false, 2500)) {
+                addEvent("ok", "代理已关闭");
+                return "ok:erpc";
+            }
+
+            // ── 招 2：结束 FlClash 进程（VPN 会随之断开，不跳界面）──
+            try {
+                android.app.ActivityManager am =
+                        (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+                if (am != null) {
+                    am.killBackgroundProcesses("com.follow.clash");
+                }
+                // 注意：App 沙箱内无法执行 am force-stop，这里只靠 killBackgroundProcesses
+            } catch (Throwable ignored) { }
+            if (waitForVpn(false, 2500)) {
+                addEvent("ok", "代理已关闭（结束进程）");
+                return "ok:kill";
+            }
+
+            // ── 招 3（会跳转，作为最后手段）：QuickActionActivity STOP ──
+            addEvent("warn", "两种静默方式都没关掉，改用快捷键方式（会短暂切到 FlClash）");
+            fireQuickAction("com.follow.clash.action.STOP");
+            if (waitForVpn(false, 2500)) {
+                addEvent("ok", "代理已关闭（快捷键）");
+                return "ok:stop";
+            }
+
+            addEvent("error", "关不掉代理，请去 FlClash 里手动关闭");
+            return "failed";
+        }
+
+        /** 启动代理（一键：开代理 + 开监听） */
+        @JavascriptInterface
+        public String startClashAndMonitor() {
+            boolean wasUp = isVpnUpNow();
+            if (!wasUp) {
+                // 优先用 Shizuku 静默启动（不跳界面）
+                if (ShizukuHelper.isReady() && ShizukuHelper.hasPermission()) {
+                    if (ShizukuHelper.startClash(MainActivity.this)) {
+                        addEvent("ok", "代理已启动（Shizuku 静默）");
+                    } else {
+                        fireQuickAction("com.follow.clash.action.START");
+                    }
+                } else {
+                    fireQuickAction("com.follow.clash.action.START");
+                }
+                if (!waitForVpn(true, 4000)) {
+                    // START 没成，试 TOGGLE
+                    fireQuickAction("com.follow.clash.action.TOGGLE");
+                    waitForVpn(true, 4000);
+                }
+            }
+            // 不管代理是不是本来就开着，都把监听拉起来
+            WatchService.guard = null;
+            WatchService.start(MainActivity.this);
+            KeepAliveJob.schedule(MainActivity.this);
+            addEvent("info", wasUp ? "代理已在运行，已开启监听" : "已开启代理和监听");
+            return isVpnUpNow() ? "ok" : "no-vpn";
+        }
+
+        /** 发一个 FlClash 的快捷动作 */
+        private void fireQuickAction(String action) {
+            try {
+                Intent i = new Intent(action);
                 i.setPackage("com.follow.clash");
                 i.setComponent(new android.content.ComponentName(
                         "com.follow.clash", "com.follow.clash.QuickActionActivity"));
@@ -303,28 +435,29 @@ public class MainActivity extends Activity {
                         | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
                         | Intent.FLAG_ACTIVITY_NO_HISTORY);
                 MainActivity.this.startActivity(i);
-                return "ok";
             } catch (Throwable t) {
-                return "error:" + t.getMessage();
+                addEvent("error", "动作失败：" + t.getMessage());
             }
         }
 
-        /** 启动后复查：代理起来了吗 */
-        private void probeAfterStart(int seconds) {
+        /** 当前 VPN/代理是否真的在跑 */
+        private boolean isVpnUpNow() {
             try {
-                android.content.SharedPreferences sp = App.prefs(MainActivity.this);
-                Guard g = new Guard("127.0.0.1", sp.getInt("clashPort", 9090),
-                        sp.getString("clashSecret", ""));
-                boolean up = g.api.alive();
-                if (up) {
-                    addEvent("ok", "代理已启动（" + seconds + " 秒内确认）");
-                    WatchService.cachedAlive = true;
-                    WatchService.guard = null;
-                    WatchService.start(MainActivity.this);
-                } else if (seconds >= 8) {
-                    addEvent("error", "代理还没起来。可能需要在 FlClash 里手动允许一次 VPN 授权");
-                }
-            } catch (Throwable ignored) { }
+                return AppWatcher.isVpnServiceRunning(MainActivity.this)
+                        || AppWatcher.hasActiveVpn(MainActivity.this);
+            } catch (Throwable t) {
+                return false;
+            }
+        }
+
+        /** 等状态变成期望值；超时返回 false */
+        private boolean waitForVpn(boolean want, long timeoutMs) {
+            long end = System.currentTimeMillis() + timeoutMs;
+            while (System.currentTimeMillis() < end) {
+                if (isVpnUpNow() == want) return true;
+                try { Thread.sleep(250); } catch (InterruptedException ignored) { }
+            }
+            return isVpnUpNow() == want;
         }
 
         /** 只打开 FlClash 界面（不启服务） */
@@ -385,6 +518,29 @@ public class MainActivity extends Activity {
                 }
             } catch (Throwable ignored) { }
             return false;
+        }
+
+        /** Shizuku 是否可用 */
+        @JavascriptInterface
+        public boolean shizukuReady() {
+            return ShizukuHelper.isReady() && ShizukuHelper.hasPermission();
+        }
+
+        /** Shizuku 是否装了 */
+        @JavascriptInterface
+        public boolean shizukuInstalled() {
+            return ShizukuHelper.isInstalled(MainActivity.this);
+        }
+
+        /** 申请 Shizuku 授权 */
+        @JavascriptInterface
+        public void requestShizuku() {
+            ShizukuHelper.requestPermission(new Runnable() {
+                @Override public void run() {
+                    boolean ok = ShizukuHelper.hasPermission();
+                    addEvent(ok ? "ok" : "error", ok ? "Shizuku 已授权" : "Shizuku 授权未完成");
+                }
+            });
         }
 
         /** 手动启动局域网页 */

@@ -24,3 +24,6 @@ settings.json
 # 系统
 .DS_Store
 Thumbs.db
+
+# 第三方依赖 jar（构建时可自行下载，见 docs/BUILD-DEPS.md）
+android/libs/*.jar

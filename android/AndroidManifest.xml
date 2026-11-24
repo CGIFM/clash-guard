@@ -20,6 +20,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
+    <!-- Shizuku：用于静默开关代理（不跳转 FlClash） -->
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
+
     <!-- 关联启动：读取「最近打开的 App」，判断 FlClash 是否刚被打开 -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
     <uses-permission android:name="android.permission.GET_TASKS" />

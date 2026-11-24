@@ -43,7 +43,7 @@ echo "==> 3/6 javac 编译 Java"
 find src out/gen -name "*.java" > out/sources.txt
 javac -source 8 -target 8 \
   -bootclasspath "$AJ_COMPILE" \
-  -classpath "$AJ_COMPILE" \
+  -classpath "$AJ_COMPILE:$DIR/libs/shizuku-api.jar:$DIR/libs/shizuku-aidl.jar" \
   -d out/classes \
   -encoding UTF-8 \
   -nowarn \
@@ -54,11 +54,17 @@ if [ ! -f out/classes/com/flclashguard/MainActivity.class ]; then
 fi
 
 echo "==> 4/6 D8 转 dex"
+# 解开依赖 jar，和我们的 class 一起转 dex
+rm -rf out/libs_classes && mkdir -p out/libs_classes
+for jar in "$DIR"/libs/*.jar; do
+  [ -f "$jar" ] || continue
+  (cd out/libs_classes && unzip -o -q "$jar")
+done
 java -cp "$R8" com.android.tools.r8.D8 \
   --min-api 21 \
   --lib "$AJ_COMPILE" \
   --output out/dex \
-  $(find out/classes -name "*.class" | tr '\n' ' ')
+  $(find out/classes out/libs_classes -name "*.class" 2>/dev/null | tr '\n' ' ')
 
 echo "==> 5/6 打包 apk"
 cd out

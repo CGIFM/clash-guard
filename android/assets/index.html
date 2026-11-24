@@ -95,12 +95,17 @@ background:var(--card2);color:var(--fg);font:inherit;outline:none}
   <div class="sub" id="heartbeat" style="margin-top:4px">正在启动后台…</div>
   <div class="sub" id="region" style="margin-top:2px">地区检测中…</div>
   <div class="sub" id="nodeLine" style="margin-top:2px">节点：—</div>
-  <button id="btnLaunch" style="width:100%;margin-top:12px;padding:15px;
-    border-radius:13px;background:#4f8cff;color:#fff;font-size:16px;font-weight:650">
-    ⚡ 一键启动代理
-  </button>
-  <button id="btnStop" style="width:100%;margin-top:8px;padding:10px;border-radius:11px;
-    background:#1b2434;color:#93a1b8;font-size:13px;border:1px solid #253044">关闭代理</button>
+  <div style="display:flex;gap:10px;margin-top:12px">
+    <button id="btnLaunch" style="flex:1;padding:16px;border-radius:14px;
+      background:#4f8cff;color:#fff;font-size:15px;font-weight:700;line-height:1.3">
+      ⚡ 一键开启<br><span style="font-size:11.5px;font-weight:400;opacity:.85">代理 + 监听</span>
+    </button>
+    <button id="btnStop" style="flex:1;padding:16px;border-radius:14px;
+      background:#1b2434;color:#93a1b8;font-size:15px;font-weight:700;line-height:1.3;
+      border:1px solid #253044">
+      ⏹ 一键关闭<br><span style="font-size:11.5px;font-weight:400;opacity:.75">代理 + 监听</span>
+    </button>
+  </div>
   <div class="metrics">
     <div class="m"><b id="mTick">0</b><span>次检测</span></div>
     <div class="m"><b id="mLat">—</b><span>延迟</span></div>
@@ -136,6 +141,10 @@ background:var(--card2);color:var(--fg);font:inherit;outline:none}
       <label class="sw"><input type="checkbox" id="sAssoc" /><i></i></label></div>
     <div class="row"><div><label>关闭 Clash 后彻底退出</label><div class="hint">完全停止后台，最省电；下次需手动启动</div></div>
       <label class="sw"><input type="checkbox" id="sStopWith" /><i></i></label></div>
+    <div id="szBox" style="display:none">
+      <div class="hint" id="szTip" style="margin-bottom:8px"></div>
+      <button class="mini acc" id="btnShizuku" style="width:100%;padding:11px">授权 Shizuku（可静默开关）</button>
+    </div>
     <div id="permBox" style="display:none">
       <div class="hint" id="permTip" style="margin-bottom:8px"></div>
       <button class="mini acc" id="btnUsage" style="width:100%;padding:11px">去授予「使用情况访问」权限</button>
@@ -291,6 +300,28 @@ background:var(--card2);color:var(--fg);font:inherit;outline:none}
         rg.style.color = allowed ? '#34d399' : '#f87171';
       }
     }
+
+    // Shizuku 状态
+    try {
+      var szBox = $('szBox');
+      if (szBox) {
+        var szOk = NATIVE.shizukuReady();
+        var szInstalled = NATIVE.shizukuInstalled();
+        if (szOk) {
+          szBox.style.display = 'block';
+          $('szTip').innerHTML = '<span style="color:#34d399">✓ Shizuku 已授权</span> · 开关代理不会跳转界面';
+          $('btnShizuku').style.display = 'none';
+        } else if (szInstalled) {
+          szBox.style.display = 'block';
+          $('szTip').textContent = 'Shizuku 已安装但未授权。授权后开关代理不用跳转 FlClash。';
+          $('btnShizuku').style.display = 'block';
+        } else {
+          szBox.style.display = 'block';
+          $('szTip').textContent = '未安装 Shizuku。装好并授权后，开关代理可完全静默（不跳转）。';
+          $('btnShizuku').style.display = 'none';
+        }
+      }
+    } catch(e){}
 
     // 权限状态
     try {
@@ -449,20 +480,78 @@ background:var(--card2);color:var(--fg);font:inherit;outline:none}
   });
 
   $('btnLaunch').addEventListener('click', function(){
+    try { if (navigator.vibrate) navigator.vibrate(25); } catch(e){}
+    var b = $('btnLaunch');
+    var orig = b.innerHTML;
+    b.innerHTML = '⏳ 正在开启…';
+    b.disabled = true;
     try {
-      $('btnLaunch').textContent = '正在启动代理…';
-      var r = NATIVE.startClashService();
-      setTimeout(function(){ pull(); }, 4000);
-      setTimeout(function(){ pull(); }, 8000);
+      var r = NATIVE.startClashAndMonitor();
+      try { if (navigator.vibrate) navigator.vibrate(r === 'ok' ? [25,40,25] : [50,60,50]); } catch(e){}
+      if (r === 'no-vpn') {
+        b.innerHTML = '⚠ 代理未起来<br><span style="font-size:11px">首次需允许 VPN</span>';
+      } else {
+        b.innerHTML = '✅ 已开启';
+      }
+      setTimeout(function(){ pull(); b.innerHTML = orig; b.disabled = false; }, 4500);
     } catch(e){
-      $('btnLaunch').textContent = '调用失败: ' + e;
+      b.innerHTML = '❌ ' + e; b.disabled = false;
+      setTimeout(function(){ b.innerHTML = orig; }, 2500);
     }
   });
 
+  // 触觉反馈（H5 的 vibrate 在 WebView 里不一定生效，失败就忽略）
+  function buzz(ms) {
+    try { if (navigator.vibrate) navigator.vibrate(ms); } catch(e){}
+  }
+
   $('btnStop').addEventListener('click', function(){
-    if (!confirm('确定要关闭 FlClash 代理吗？关闭后所有网络会走直连。')) return;
-    try { NATIVE.stopClashService(); } catch(e){}
-    setTimeout(pull, 2500);
+    buzz(30);
+    var b = $('btnStop');
+    var orig = b.innerHTML;
+
+    // 不再用 confirm（WebView 里可能不弹），改成两步点击：第一次提示，再点一次执行
+    if (!b.dataset.armed) {
+      b.dataset.armed = '1';
+      b.innerHTML = '⚠ 再点一次<br><span style="font-size:11px;font-weight:400">确认关闭代理</span>';
+      b.style.background = '#3a2233';
+      b.style.color = '#f87171';
+      buzz([20,40,20]);
+      clearTimeout(b._t);
+      b._t = setTimeout(function(){
+        delete b.dataset.armed;
+        b.innerHTML = orig;
+        b.style.background = '#1b2434';
+        b.style.color = '#93a1b8';
+      }, 4000);
+      return;
+    }
+
+    // 第二次点击 → 真正执行
+    delete b.dataset.armed;
+    b.innerHTML = '⏳ 正在关闭…';
+    b.disabled = true;
+    b.style.background = '#1b2434';
+    b.style.color = '#93a1b8';
+    try {
+      var r = NATIVE.stopClashService();
+      if (r === 'already-off') {
+        b.innerHTML = 'ℹ️ 本来就关着';
+        buzz(20);
+      } else if (r === 'failed') {
+        b.innerHTML = '⚠ 关不掉<br><span style="font-size:11px;font-weight:400">去 FlClash 手动关</span>';
+        buzz([40,60,40]);
+      } else {
+        b.innerHTML = '✅ 已关闭';
+        buzz([30,50,30]);
+      }
+      setTimeout(function(){ pull(); b.innerHTML = orig; b.disabled = false; }, 4500);
+    } catch(e){
+      b.innerHTML = '❌ 调用失败';
+      b.disabled = false;
+      buzz([60,40,60]);
+      setTimeout(function(){ b.innerHTML = orig; }, 3000);
+    }
   });
 
   $('sStopWith').addEventListener('change', function(){
@@ -470,6 +559,14 @@ background:var(--card2);color:var(--fg);font:inherit;outline:none}
       var s = JSON.parse(NATIVE.getSettings());
       s.stopWithClash = this.checked;
       NATIVE.saveSettings(JSON.stringify(s));
+    } catch(e){}
+  });
+
+  $('btnShizuku').addEventListener('click', function(){
+    try {
+      NATIVE.requestShizuku();
+      $('btnShizuku').textContent = '等待授权…';
+      setTimeout(function(){ pull(); $('btnShizuku').textContent='授权 Shizuku（可静默开关）'; }, 4000);
     } catch(e){}
   });
 
